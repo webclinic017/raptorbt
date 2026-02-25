@@ -842,6 +842,146 @@ pub fn run_spread_backtest<'py>(
     Ok(convert_result(result))
 }
 
+/// A single spread backtest item for batch execution.
+#[pyclass]
+#[derive(Clone)]
+pub struct PyBatchSpreadItem {
+    #[pyo3(get, set)]
+    pub strategy_id: String,
+    pub legs_premiums: Vec<Vec<f64>>,
+    pub leg_configs: Vec<(String, f64, i32, usize)>,
+    pub entries: Vec<bool>,
+    pub exits: Vec<bool>,
+    #[pyo3(get, set)]
+    pub spread_type: String,
+    #[pyo3(get, set)]
+    pub max_loss: Option<f64>,
+    #[pyo3(get, set)]
+    pub target_profit: Option<f64>,
+}
+
+#[pymethods]
+impl PyBatchSpreadItem {
+    #[new]
+    #[pyo3(signature = (strategy_id, legs_premiums, leg_configs, entries, exits,
+        spread_type="custom", max_loss=None, target_profit=None))]
+    fn new(
+        strategy_id: String,
+        legs_premiums: Vec<PyReadonlyArray1<f64>>,
+        leg_configs: Vec<(String, f64, i32, usize)>,
+        entries: PyReadonlyArray1<bool>,
+        exits: PyReadonlyArray1<bool>,
+        spread_type: &str,
+        max_loss: Option<f64>,
+        target_profit: Option<f64>,
+    ) -> Self {
+        Self {
+            strategy_id,
+            legs_premiums: legs_premiums.into_iter().map(numpy_to_vec_f64).collect(),
+            leg_configs,
+            entries: numpy_to_vec_bool(entries),
+            exits: numpy_to_vec_bool(exits),
+            spread_type: spread_type.to_string(),
+            max_loss,
+            target_profit,
+        }
+    }
+}
+
+/// Run multiple spread backtests in parallel via Rayon.
+///
+/// Shared data (timestamps, underlying_close) is converted once, then each
+/// item is backtested on its own Rayon thread with the GIL released.
+///
+/// Returns a Vec of (strategy_id, PyBacktestResult) tuples.
+#[pyfunction]
+#[pyo3(signature = (timestamps, underlying_close, items, config=None))]
+pub fn batch_spread_backtest(
+    py: Python<'_>,
+    timestamps: PyReadonlyArray1<i64>,
+    underlying_close: PyReadonlyArray1<f64>,
+    items: Vec<PyBatchSpreadItem>,
+    config: Option<&PyBacktestConfig>,
+) -> PyResult<Vec<(String, PyBacktestResult)>> {
+    use rayon::prelude::*;
+
+    // Convert shared data while holding GIL
+    let ts = numpy_to_vec_i64(timestamps);
+    let underlying = numpy_to_vec_f64(underlying_close);
+    let base_config = config.map(|c| BacktestConfig::from(c)).unwrap_or_default();
+
+    // Prepare each item into a self-contained struct for parallel execution
+    struct PreparedItem {
+        strategy_id: String,
+        premiums: Vec<Vec<f64>>,
+        entries: Vec<bool>,
+        exits: Vec<bool>,
+        spread_config: SpreadConfig,
+    }
+
+    let prepared: Vec<PreparedItem> = items
+        .into_iter()
+        .map(|item| {
+            let rust_leg_configs: Vec<LegConfig> = item
+                .leg_configs
+                .into_iter()
+                .map(|(opt_type, strike, quantity, lot_size)| {
+                    let option_type =
+                        SpreadOptionType::from_str(&opt_type).unwrap_or(SpreadOptionType::Call);
+                    LegConfig::new(option_type, strike, quantity, lot_size)
+                })
+                .collect();
+
+            let spread_type_enum = match item.spread_type.to_lowercase().as_str() {
+                "straddle" => SpreadType::Straddle,
+                "strangle" => SpreadType::Strangle,
+                "vertical_call" | "verticalcall" => SpreadType::VerticalCall,
+                "vertical_put" | "verticalput" => SpreadType::VerticalPut,
+                "iron_condor" | "ironcondor" => SpreadType::IronCondor,
+                "iron_butterfly" | "ironbutterfly" => SpreadType::IronButterfly,
+                "butterfly_call" | "butterflycall" => SpreadType::ButterflyCall,
+                "butterfly_put" | "butterflyput" => SpreadType::ButterflyPut,
+                "calendar" => SpreadType::Calendar,
+                "diagonal" => SpreadType::Diagonal,
+                _ => SpreadType::Custom,
+            };
+
+            let spread_config = SpreadConfig {
+                base: base_config.clone(),
+                spread_type: spread_type_enum,
+                leg_configs: rust_leg_configs.clone(),
+                max_loss: item.max_loss,
+                target_profit: item.target_profit,
+                close_at_eod: false,
+            };
+
+            PreparedItem {
+                strategy_id: item.strategy_id,
+                premiums: item.legs_premiums,
+                entries: item.entries,
+                exits: item.exits,
+                spread_config,
+            }
+        })
+        .collect();
+
+    // Release GIL and run all backtests in parallel via Rayon
+    let results: Vec<(String, crate::core::types::BacktestResult)> = py.allow_threads(|| {
+        prepared
+            .into_par_iter()
+            .map(|item| {
+                let backtest = SpreadBacktest::new(item.spread_config);
+                let result =
+                    backtest.run(&ts, &underlying, &item.premiums, &item.entries, &item.exits);
+                (item.strategy_id, result)
+            })
+            .collect()
+    });
+
+    // Re-acquire GIL and convert results to Python objects
+    Ok(results.into_iter().map(|(id, result)| (id, convert_result(result))).collect())
+}
+
 /// Run multi-strategy backtest.
 #[pyfunction]
 #[pyo3(signature = (timestamps, open, high, low, close, volume, strategies, config=None, combine_mode="any"))]

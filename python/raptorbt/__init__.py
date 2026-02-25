@@ -26,6 +26,9 @@ from raptorbt._raptorbt import (
     run_pairs_backtest,
     run_multi_backtest,
     run_spread_backtest,
+    # Batch backtest
+    PyBatchSpreadItem,
+    batch_spread_backtest,
     # Monte Carlo simulation
     simulate_portfolio_mc,
     # Indicator functions
@@ -43,7 +46,7 @@ from raptorbt._raptorbt import (
     rolling_max,
 )
 
-__version__ = "0.3.2.post1"
+__version__ = "0.3.3"
 
 __all__ = [
     # Config classes
@@ -62,6 +65,9 @@ __all__ = [
     "run_pairs_backtest",
     "run_multi_backtest",
     "run_spread_backtest",
+    # Batch backtest
+    "PyBatchSpreadItem",
+    "batch_spread_backtest",
     # Monte Carlo simulation
     "simulate_portfolio_mc",
     # Indicator functions
