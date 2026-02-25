@@ -80,6 +80,7 @@ RaptorBT was built to address the performance limitations of VectorBT. Benchmark
 ### Key Features
 
 - **6 Strategy Types**: Single instrument, basket/collective, pairs trading, options, spreads, and multi-strategy
+- **Batch Spread Backtesting**: Run multiple spread backtests in parallel via Rayon with GIL released
 - **Monte Carlo Simulation**: Correlated multi-asset forward projection via GBM + Cholesky decomposition
 - **33 Metrics**: Full parity with VectorBT including Sharpe, Sortino, Calmar, Omega, SQN, Payoff Ratio, Recovery Factor, and more
 - **12 Technical Indicators**: SMA, EMA, RSI, MACD, Stochastic, ATR, Bollinger Bands, ADX, VWAP, Supertrend, Rolling Min, Rolling Max
@@ -404,6 +405,50 @@ result = raptorbt.run_multi_backtest(
 - `weighted`: Weight signals by strategy weight
 - `independent`: Run strategies independently (aggregate PnL)
 
+### 6. Batch Spread Backtest
+
+Run multiple spread backtests in parallel. Shared data (timestamps, underlying close) is converted once, then each item is backtested on its own Rayon thread with the GIL released for maximum throughput.
+
+```python
+import numpy as np
+import raptorbt
+
+config = raptorbt.PyBacktestConfig(initial_capital=100000, fees=0.001)
+
+# Create batch items — one per strategy variation
+items = [
+    raptorbt.PyBatchSpreadItem(
+        strategy_id="straddle_24000",
+        legs_premiums=[call_24000_premiums, put_24000_premiums],
+        leg_configs=[("CE", 24000.0, -1, 50), ("PE", 24000.0, -1, 50)],
+        entries=entries,
+        exits=exits,
+        spread_type="straddle",
+        max_loss=5000.0,
+        target_profit=3000.0,
+    ),
+    raptorbt.PyBatchSpreadItem(
+        strategy_id="strangle_23500_24500",
+        legs_premiums=[call_24500_premiums, put_23500_premiums],
+        leg_configs=[("CE", 24500.0, -1, 50), ("PE", 23500.0, -1, 50)],
+        entries=entries,
+        exits=exits,
+        spread_type="strangle",
+    ),
+]
+
+# Run all in parallel — returns list of (strategy_id, result) tuples
+results = raptorbt.batch_spread_backtest(
+    timestamps=timestamps,
+    underlying_close=underlying_close,
+    items=items,
+    config=config,
+)
+
+for strategy_id, result in results:
+    print(f"{strategy_id}: {result.metrics.total_return_pct:.2f}%")
+```
+
 ---
 
 ## Metrics
@@ -720,6 +765,34 @@ inst_config.set_fixed_target(0.05)
 - `alloted_capital` - Per-instrument capital cap (capped at available cash).
 - `existing_qty` / `avg_price` - Reserved for future live-to-backtest transitions.
 
+### PyBatchSpreadItem
+
+```python
+item = raptorbt.PyBatchSpreadItem(
+    strategy_id: str,                    # Unique identifier for this backtest
+    legs_premiums: List[np.ndarray],     # Premium series per leg
+    leg_configs: List[Tuple[str, float, int, int]],  # (option_type, strike, quantity, lot_size)
+    entries: np.ndarray,                 # bool entry signals
+    exits: np.ndarray,                   # bool exit signals
+    spread_type: str = "custom",         # Spread type string
+    max_loss: float = None,              # Optional max loss exit
+    target_profit: float = None,         # Optional target profit exit
+)
+```
+
+### batch_spread_backtest
+
+```python
+results = raptorbt.batch_spread_backtest(
+    timestamps: np.ndarray,              # int64 nanosecond timestamps (shared)
+    underlying_close: np.ndarray,        # Underlying close prices (shared)
+    items: List[PyBatchSpreadItem],      # List of spread backtest items
+    config: PyBacktestConfig = None,     # Optional shared config
+) -> List[Tuple[str, PyBacktestResult]]  # (strategy_id, result) pairs
+```
+
+Runs all spread backtests in parallel via Rayon. Timestamps and underlying close are shared across all items and converted once. The GIL is released during execution for maximum Python concurrency.
+
 ### simulate_portfolio_mc
 
 ```python
@@ -923,6 +996,15 @@ MIT License - see [LICENSE](LICENSE) for details.
 ---
 
 ## Changelog
+
+### v0.3.3
+
+- Add `batch_spread_backtest` function for running multiple spread backtests in parallel via Rayon
+- Add `PyBatchSpreadItem` class for defining individual items in a batch spread backtest
+- Shared data (timestamps, underlying close) is converted once and reused across all items
+- GIL released during parallel execution for maximum Python concurrency
+- Each item carries its own `strategy_id`, leg configs, signals, spread type, and optional max loss / target profit
+- Returns a list of `(strategy_id, PyBacktestResult)` tuples preserving result-to-input mapping
 
 ### v0.3.2
 
