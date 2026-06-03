@@ -43,6 +43,7 @@ fn _raptorbt(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(python::bindings::run_pairs_backtest, m)?)?;
     m.add_function(wrap_pyfunction!(python::bindings::run_multi_backtest, m)?)?;
     m.add_function(wrap_pyfunction!(python::bindings::run_spread_backtest, m)?)?;
+    m.add_function(wrap_pyfunction!(python::bindings::run_tick_backtest, m)?)?;
 
     // Register batch spread backtest
     m.add_class::<python::bindings::PyBatchSpreadItem>()?;

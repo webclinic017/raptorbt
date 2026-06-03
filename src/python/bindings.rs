@@ -21,6 +21,7 @@ use crate::strategies::single::SingleBacktest;
 use crate::strategies::spreads::{
     LegConfig, OptionType as SpreadOptionType, SpreadBacktest, SpreadConfig, SpreadType,
 };
+use crate::strategies::tick::{TickBacktest, TickBacktestConfig};
 
 use super::numpy_bridge::*;
 
@@ -1045,6 +1046,91 @@ pub fn run_multi_backtest<'py>(
 
     let backtest = MultiStrategyBacktest::new(multi_config);
     let result = backtest.run(&ohlcv, &rust_strategies);
+
+    Ok(convert_result(result))
+}
+
+/// Run tick-level backtest on a single instrument.
+///
+/// All arrays must be the same length N (one element per tick).
+/// `buy_qty_delta` and `sell_qty_delta` must already be per-tick deltas —
+/// pass the difference from the previous tick, not Zerodha's cumulative totals.
+/// `entries` / `exits` are caller-computed boolean signal arrays.
+///
+/// Returns a `PyBacktestResult` with the same fields as `run_single_backtest`.
+#[pyfunction]
+#[pyo3(signature = (
+    timestamps,
+    ltp,
+    bid,
+    ask,
+    buy_qty_delta,
+    sell_qty_delta,
+    oi,
+    entries,
+    exits,
+    symbol = "TICK",
+    initial_capital = 100_000.0,
+    fees = 0.001,
+    slippage = 0.0,
+    stop_loss_pct = 5.0,
+    take_profit_pct = 10.0,
+    max_hold_seconds = 1800_u64,
+    entry_cooldown_ticks = 10_usize,
+    max_trades = 50_usize,
+))]
+pub fn run_tick_backtest<'py>(
+    _py: Python<'py>,
+    timestamps: PyReadonlyArray1<i64>,
+    ltp: PyReadonlyArray1<f64>,
+    bid: PyReadonlyArray1<f64>,
+    ask: PyReadonlyArray1<f64>,
+    buy_qty_delta: PyReadonlyArray1<f64>,
+    sell_qty_delta: PyReadonlyArray1<f64>,
+    oi: PyReadonlyArray1<f64>,
+    entries: PyReadonlyArray1<bool>,
+    exits: PyReadonlyArray1<bool>,
+    symbol: &str,
+    initial_capital: f64,
+    fees: f64,
+    slippage: f64,
+    stop_loss_pct: f64,
+    take_profit_pct: f64,
+    max_hold_seconds: u64,
+    entry_cooldown_ticks: usize,
+    max_trades: usize,
+) -> PyResult<PyBacktestResult> {
+    let tick_data = crate::core::types::TickData {
+        timestamps: numpy_to_vec_i64(timestamps),
+        ltp: numpy_to_vec_f64(ltp),
+        bid: numpy_to_vec_f64(bid),
+        ask: numpy_to_vec_f64(ask),
+        buy_qty_delta: numpy_to_vec_f64(buy_qty_delta),
+        sell_qty_delta: numpy_to_vec_f64(sell_qty_delta),
+        oi: numpy_to_vec_f64(oi),
+    };
+
+    let entry_signals = numpy_to_vec_bool(entries);
+    let exit_signals = numpy_to_vec_bool(exits);
+
+    let config = TickBacktestConfig {
+        base: crate::core::types::BacktestConfig {
+            initial_capital,
+            fees,
+            slippage,
+            stop: crate::core::types::StopConfig::None,
+            target: crate::core::types::TargetConfig::None,
+            upon_bar_close: false,
+        },
+        stop_loss_pct,
+        take_profit_pct,
+        max_hold_seconds,
+        entry_cooldown_ticks,
+        max_trades,
+    };
+
+    let backtest = TickBacktest::new(config);
+    let result = backtest.run(&tick_data, &entry_signals, &exit_signals, symbol);
 
     Ok(convert_result(result))
 }

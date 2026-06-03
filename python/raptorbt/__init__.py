@@ -26,6 +26,7 @@ from raptorbt._raptorbt import (
     run_pairs_backtest,
     run_multi_backtest,
     run_spread_backtest,
+    run_tick_backtest,
     # Batch backtest
     PyBatchSpreadItem,
     batch_spread_backtest,
@@ -46,7 +47,7 @@ from raptorbt._raptorbt import (
     rolling_max,
 )
 
-__version__ = "0.3.4"
+__version__ = "0.4.0"
 
 __all__ = [
     # Config classes
@@ -65,6 +66,7 @@ __all__ = [
     "run_pairs_backtest",
     "run_multi_backtest",
     "run_spread_backtest",
+    "run_tick_backtest",
     # Batch backtest
     "PyBatchSpreadItem",
     "batch_spread_backtest",
