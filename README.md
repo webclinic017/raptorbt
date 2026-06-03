@@ -449,6 +449,74 @@ for strategy_id, result in results:
     print(f"{strategy_id}: {result.metrics.total_return_pct:.2f}%")
 ```
 
+### 7. Tick-Level Backtest
+
+Simulate intraday strategies at full tick resolution — no bar resampling, no intra-bar path approximation. Designed for options momentum, scalping, and any setup where the exact fill tick matters.
+
+```python
+import numpy as np
+import raptorbt
+
+# Raw tick arrays (one element per tick, same length N)
+# buy_qty_delta / sell_qty_delta must be per-tick deltas, NOT Zerodha cumulative sums
+result = raptorbt.run_tick_backtest(
+    timestamps=timestamps_ns,       # int64 nanoseconds-since-epoch
+    ltp=ltp_arr,                    # last traded price
+    bid=bid_arr,
+    ask=ask_arr,
+    buy_qty_delta=buy_delta,        # pre-converted from cumulative: np.diff(buy_cum).clip(0)
+    sell_qty_delta=sell_delta,
+    oi=oi_arr,
+    entries=entry_signals,          # bool array — True where entry is allowed
+    exits=exit_signals,             # bool array — True where position should exit
+    symbol="NIFTY26APR24600PE",
+    initial_capital=100_000.0,
+    fees=0.001,
+    slippage=0.0005,
+    stop_loss_pct=5.0,
+    take_profit_pct=10.0,
+    max_hold_seconds=1800,          # 30-minute maximum hold
+    entry_cooldown_ticks=10,        # minimum ticks between entries
+    max_trades=50,
+)
+
+print(f"trades: {result.metrics.total_trades}")
+print(f"profit_factor: {result.metrics.profit_factor:.2f}")
+print(f"win_rate: {result.metrics.win_rate_pct:.1f}%")
+```
+
+#### Tick Signal & Feature Helpers
+
+Precompute entry/exit signal arrays and tick microstructure features before calling `run_tick_backtest`:
+
+```python
+# Signal arrays
+entries = raptorbt.compute_tick_entry_signals(
+    spread_pct=raptorbt.tick_spread_pct(bid, ask),
+    bsi_delta=raptorbt.buy_sell_imbalance_delta(buy_cum, sell_cum),  # pass raw cumulative
+    return_1m=raptorbt.return_window(timestamps_ns, ltp, window_seconds=60.0),
+    spread_pct_max=3.0,
+    bsi_min=0.55,           # minimum buy-side delta fraction
+    return_1m_min_abs=0.3,  # minimum 1-min return % (abs)
+    return_direction=1,     # +1 long, -1 short
+    cooldown_ticks=10,
+)
+exits = raptorbt.compute_tick_exit_signals(
+    timestamps_ns=timestamps_ns,
+    eod_exit_time_ns=eod_ns,   # force exit at/after this timestamp; 0 = disabled
+)
+
+# Feature arrays (all return Vec<f64> of same length as input)
+spread   = raptorbt.tick_spread_pct(bid, ask)               # (ask-bid)/mid * 100
+bsi      = raptorbt.buy_sell_imbalance_delta(buy_cum, sell_cum)  # delta BSI per tick
+ret_1m   = raptorbt.return_window(ts_ns, ltp, 60.0)         # 1-min lookback return %
+vol      = raptorbt.realized_vol_rolling(ts_ns, ltp, 300.0)  # 5-min realized vol %
+oi_pos   = raptorbt.oi_position_pct(oi, oi_day_high, oi_day_low)  # [0, 100]
+velocity = raptorbt.tick_velocity(ts_ns, 60.0)              # ticks/min over last 60s
+```
+
+**Important for Zerodha data:** `total_buy_qty` and `total_sell_qty` from KiteTicker are cumulative session running sums, not per-tick values. Pass them as-is to `buy_sell_imbalance_delta` (it computes deltas internally). For `run_tick_backtest`, convert first: `buy_delta = np.diff(buy_cum, prepend=0).clip(min=0)`.
+
 ---
 
 ## Metrics
@@ -996,6 +1064,23 @@ MIT License - see [LICENSE](LICENSE) for details.
 ---
 
 ## Changelog
+
+### v0.4.0
+
+**Tick-level backtesting — full tick resolution, no bar resampling.**
+
+- Add `TickData` struct — parallel arrays of `timestamps`, `ltp`, `bid`, `ask`, `buy_qty_delta`, `sell_qty_delta`, `oi` (one element per tick). Callers must pre-convert Zerodha cumulative session totals to per-tick deltas before passing.
+- Add `ExitReason::TimeExit` — max hold-time exceeded exit for tick strategies.
+- Add `run_tick_backtest` — tick-native simulation engine. Entry fills at ask+slippage; stop/target checked against ltp on every tick (not OHLC approximation); max-hold-seconds time exit; configurable cooldown between entries. Returns the same `PyBacktestResult` / 27-metric `PyBacktestMetrics` as all other strategy types.
+- Add `compute_tick_entry_signals` — compute momentum entry bool array from precomputed feature arrays (spread gate, delta BSI gate, 1-min return gate, cooldown enforcement). O(N) single pass.
+- Add `compute_tick_exit_signals` — time-based (EOD) exit bool array from tick timestamps.
+- Add `tick_spread_pct` — per-tick bid/ask spread as percentage of mid price.
+- Add `buy_sell_imbalance_delta` — per-tick delta BSI from Zerodha cumulative running sums. Fixes the raw-cumulative BSI artefact (~0.95 all day regardless of order flow).
+- Add `return_window` — per-tick lookback return over a configurable time window using binary search (O(N log N)). Returns NaN where history is insufficient — correctly gates the entry filter rather than silently passing.
+- Add `realized_vol_rolling` — rolling realized volatility proxy (stddev of log-returns) over a time window.
+- Add `oi_position_pct` — OI position within the day's high/low range, per tick: [0, 100].
+- Add `tick_velocity` — rolling tick count per minute over a configurable time window.
+- Expose `compute_backtest_metrics` as a public free function in `portfolio::engine` — non-OHLCV strategy types can produce identical metrics without duplicating the calculation logic.
 
 ### v0.3.4
 
