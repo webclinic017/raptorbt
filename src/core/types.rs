@@ -104,6 +104,44 @@ impl OhlcvData {
     }
 }
 
+/// Raw tick data series for tick-level backtesting.
+///
+/// All fields are parallel arrays of length N (one entry per tick).
+/// `buy_qty_delta` and `sell_qty_delta` must be per-tick deltas, not
+/// cumulative session totals — callers are responsible for converting
+/// Zerodha-style running sums before passing them here.
+#[derive(Debug, Clone)]
+pub struct TickData {
+    /// Nanoseconds-since-epoch timestamp for each tick.
+    pub timestamps: Vec<Timestamp>,
+    /// Last traded price at each tick.
+    pub ltp: Vec<Price>,
+    /// Best bid price at each tick (0.0 if unavailable).
+    pub bid: Vec<Price>,
+    /// Best ask price at each tick (0.0 if unavailable).
+    pub ask: Vec<Price>,
+    /// Per-tick buy quantity delta (not cumulative).
+    pub buy_qty_delta: Vec<f64>,
+    /// Per-tick sell quantity delta (not cumulative).
+    pub sell_qty_delta: Vec<f64>,
+    /// Open interest at each tick (0 if unavailable).
+    pub oi: Vec<f64>,
+}
+
+impl TickData {
+    /// Number of ticks.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.ltp.len()
+    }
+
+    /// Whether the series is empty.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.ltp.is_empty()
+    }
+}
+
 /// Compiled trading signals from strategy.
 #[derive(Debug, Clone)]
 pub struct CompiledSignals {
@@ -214,6 +252,8 @@ pub enum ExitReason {
     EndOfData,
     /// Option expiry settlement.
     Settlement,
+    /// Max hold time exceeded (tick backtest).
+    TimeExit,
 }
 
 /// Backtest configuration.

@@ -761,6 +761,25 @@ impl PortfolioEngine {
     }
 }
 
+/// Compute `BacktestMetrics` from pre-built curves and trade list.
+///
+/// Exposed as a standalone function so non-OHLCV strategies (e.g. tick backtest)
+/// can produce identical metrics without duplicating the calculation logic.
+pub fn compute_backtest_metrics(
+    equity_curve: &[f64],
+    drawdown_curve: &[f64],
+    returns: &[f64],
+    trades: &[Trade],
+    initial_capital: f64,
+) -> BacktestMetrics {
+    // Delegate to a throwaway engine instance — avoids duplicating the logic.
+    let engine = PortfolioEngine::new(BacktestConfig {
+        initial_capital,
+        ..Default::default()
+    });
+    engine.calculate_metrics(equity_curve, drawdown_curve, returns, trades, &StreamingMetrics::new())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
