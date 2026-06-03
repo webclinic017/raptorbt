@@ -35,14 +35,13 @@ impl SignalProcessor {
 
     /// Clean entry/exit signals to ensure proper alternation.
     ///
-    /// Rules (matching VectorBT behavior):
+    /// Rules:
     /// 1. First signal must be an entry
     /// 2. After an entry, ignore further entries (unless pyramiding)
     /// 3. After an exit, ignore further exits
     /// 4. Entries and exits must alternate properly
     /// 5. Same-bar conflict: If both entry AND exit signals are True on the same bar
-    ///    when in position, VectorBT stays in position (ignores the exit).
-    ///    This matches VectorBT's "entry takes priority" behavior.
+    ///    when in position, entry takes priority — stay in position (ignore the exit).
     ///
     /// # Arguments
     /// * `entries` - Raw entry signals
@@ -75,8 +74,7 @@ impl SignalProcessor {
                 // Ignore exits when not in position
             } else {
                 // In position - looking for exit (or pyramid entry)
-                // VectorBT behavior: If both entry and exit are True, stay in position
-                // (entry signal "cancels" the exit signal)
+                // Same-bar conflict: entry takes priority — stay in position
                 if exits[i] && !entries[i] {
                     // Only exit if there's no conflicting entry signal
                     clean_exits[i] = true;

@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "raptorbt"
 version = "0.4.0"
-description = "High-performance Rust backtesting engine with Python bindings. Drop-in VectorBT replacement with up insanely faster performance at fractional memory footprint."
+description = "High-performance Rust backtesting engine with Python bindings. Bar-level and tick-level simulation with sub-millisecond execution and a minimal footprint."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {file = "LICENSE"}

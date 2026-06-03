@@ -1,12 +1,13 @@
 """
 RaptorBT - High-performance Rust backtesting engine.
 
-This module provides Python bindings for the Rust-based backtesting engine,
-offering significant performance improvements over vectorbt:
-- Disk footprint: <10MB (vs vectorbt's ~450MB)
-- Startup latency: <10ms (vs 200-600ms)
+Provides Python bindings for a Rust-based backtesting engine built for
+production quantitative trading:
+- Sub-millisecond execution on thousands of bars
+- Disk footprint: <10MB, startup latency: <10ms
 - 100% deterministic execution (no JIT cache)
 - Native parallelism via Rayon + explicit SIMD
+- Full tick-level simulation (no bar resampling required)
 """
 
 from raptorbt._raptorbt import (

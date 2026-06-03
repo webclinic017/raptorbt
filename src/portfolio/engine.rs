@@ -237,8 +237,8 @@ impl PortfolioEngine {
                     .map(|cap| cap.min(cash))
                     .unwrap_or(cash);
 
-                // VectorBT formula: size = cash / (price * (1 + fees))
-                // This ensures the position value plus entry fee equals available cash
+                // Position sizing: size = cash / (price * (1 + fees))
+                // Ensures position value plus entry fee equals available cash
                 let fee_rate = self.config.fees;
                 let raw_size = if let Some(ref sizes) = signals.position_sizes {
                     sizes[i] * available / (adjusted_price * (1.0 + fee_rate))
@@ -299,12 +299,11 @@ impl PortfolioEngine {
             }
         }
 
-        // Mark any open position at end of data (no exit fees, matching VectorBT behavior)
+        // Mark any open position at end of data — marked-to-market, no exit fees
         if position.is_in_position() {
             let last_idx = n - 1;
             let exit_price = ohlcv.close[last_idx];
-            // No exit fees for EndOfData - position is marked-to-market but not actually closed
-            // This matches VectorBT's behavior for "Open" trades
+            // No exit fees for EndOfData: position is marked-to-market but not actually closed
             let exit_fees = 0.0;
 
             if let Some(trade) = position.close_position(
@@ -572,11 +571,9 @@ impl PortfolioEngine {
         };
 
         // Risk-adjusted metrics (calculated from daily portfolio returns, not trade returns)
-        // This matches VectorBT's calculation methodology
         let (sharpe_ratio, sortino_ratio, omega_ratio) = self.calculate_risk_metrics(returns);
 
         // Calmar ratio: CAGR / max drawdown
-        // VectorBT uses Compound Annual Growth Rate (CAGR)
         let num_periods = equity_curve.len().max(1) as f64;
         let years = num_periods / 365.25; // Convert to years using 365.25 days
         let total_return_frac = total_return_pct / 100.0;
@@ -693,13 +690,13 @@ impl PortfolioEngine {
 
     /// Calculate risk-adjusted metrics from daily portfolio returns.
     /// Returns (sharpe_ratio, sortino_ratio, omega_ratio).
-    /// Uses 365 days for annualization to match VectorBT.
+    /// Uses 365 calendar days for annualization.
     fn calculate_risk_metrics(&self, returns: &[f64]) -> (f64, f64, f64) {
         if returns.len() < 2 {
             return (0.0, 0.0, 1.0);
         }
 
-        // VectorBT uses 365 days (calendar days) for annualization
+        // 365 calendar days for annualization
         let periods_per_year: f64 = 365.0;
         let _n = returns.len() as f64;
 

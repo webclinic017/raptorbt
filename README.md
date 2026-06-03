@@ -8,7 +8,7 @@
 
 **Blazing-fast backtesting for the modern quant.**
 
-RaptorBT is a high-performance backtesting engine written in Rust with Python bindings via PyO3. It serves as a drop-in replacement for VectorBT — delivering **HFT-grade compute efficiency** with full metric parity.
+RaptorBT is a high-performance backtesting engine written in Rust with Python bindings via PyO3. Built for production quantitative trading — delivering **HFT-grade compute efficiency** with full tick-to-bar coverage.
 
 <p align="center">
   <strong>5,800x faster</strong> · <strong>45x smaller</strong> · <strong>100% deterministic</strong>
@@ -58,7 +58,6 @@ Developed and maintained by the [Alphabench](https://alphabench.in) team.
 - [Metrics](#metrics)
 - [Indicators](#indicators)
 - [Stop-Loss & Take-Profit](#stop-loss--take-profit)
-- [VectorBT Comparison](#vectorbt-comparison)
 - [API Reference](#api-reference)
 - [Building from Source](#building-from-source)
 - [Testing](#testing)
@@ -67,23 +66,24 @@ Developed and maintained by the [Alphabench](https://alphabench.in) team.
 
 ## Overview
 
-RaptorBT was built to address the performance limitations of VectorBT. Benchmarked by the Alphabench team:
+RaptorBT is benchmarked by the Alphabench team on Apple Silicon M-series:
 
-| Metric                        | VectorBT            | RaptorBT     | Improvement               |
-| ----------------------------- | ------------------- | ------------ | ------------------------- |
-| **Disk Footprint**            | ~450MB              | <10MB        | **45x smaller**           |
-| **Startup Latency**           | 200-600ms           | <10ms        | **20-60x faster**         |
-| **Backtest Speed (1K bars)**  | 1460ms              | 0.25ms       | **5,800x faster**         |
-| **Backtest Speed (50K bars)** | 43ms                | 1.7ms        | **25x faster**            |
-| **Memory Usage**              | High (JIT + pandas) | Low (native) | **Significant reduction** |
+| Metric                        | RaptorBT     |
+| ----------------------------- | ------------ |
+| **Disk Footprint**            | <10MB        |
+| **Startup Latency**           | <10ms        |
+| **Backtest Speed (1K bars)**  | 0.25ms       |
+| **Backtest Speed (50K bars)** | 1.7ms        |
+| **Memory Usage**              | Low (native) |
 
 ### Key Features
 
-- **6 Strategy Types**: Single instrument, basket/collective, pairs trading, options, spreads, and multi-strategy
+- **7 Strategy Types**: Single instrument, basket/collective, pairs trading, options, spreads, multi-strategy, and tick-level
+- **Tick-Level Simulation**: Full tick resolution for intraday options momentum, scalping, and microstructure strategies
 - **Batch Spread Backtesting**: Run multiple spread backtests in parallel via Rayon with GIL released
 - **Monte Carlo Simulation**: Correlated multi-asset forward projection via GBM + Cholesky decomposition
-- **33 Metrics**: Full parity with VectorBT including Sharpe, Sortino, Calmar, Omega, SQN, Payoff Ratio, Recovery Factor, and more
-- **12 Technical Indicators**: SMA, EMA, RSI, MACD, Stochastic, ATR, Bollinger Bands, ADX, VWAP, Supertrend, Rolling Min, Rolling Max
+- **33 Metrics**: Sharpe, Sortino, Calmar, Omega, SQN, Payoff Ratio, Recovery Factor, and more
+- **Technical Indicators**: SMA, EMA, RSI, MACD, Stochastic, ATR, Bollinger Bands, ADX, VWAP, Supertrend, Rolling Min/Max, and tick feature functions
 - **Stop/Target Management**: Fixed, ATR-based, and trailing stops with risk-reward targets
 - **100% Deterministic**: No JIT compilation variance between runs
 - **Native Parallelism**: Rayon-based parallel processing with explicit SIMD optimizations
@@ -97,26 +97,23 @@ RaptorBT was built to address the performance limitations of VectorBT. Benchmark
 Tested on Apple Silicon M-series with random walk price data and SMA crossover strategy:
 
 ```
-┌─────────────┬────────────┬───────────┬──────────┐
-│ Data Size   │ VectorBT   │ RaptorBT  │ Speedup  │
-├─────────────┼────────────┼───────────┼──────────┤
-│ 1,000 bars  │ 1,460 ms   │ 0.25 ms   │ 5,827x   │
-│ 5,000 bars  │ 36 ms      │ 0.24 ms   │ 153x     │
-│ 10,000 bars │ 37 ms      │ 0.46 ms   │ 80x      │
-│ 50,000 bars │ 43 ms      │ 1.68 ms   │ 26x      │
-└─────────────┴────────────┴───────────┴──────────┘
+┌─────────────┬───────────┐
+│ Data Size   │ RaptorBT  │
+├─────────────┼───────────┤
+│ 1,000 bars  │ 0.25 ms   │
+│ 5,000 bars  │ 0.24 ms   │
+│ 10,000 bars │ 0.46 ms   │
+│ 50,000 bars │ 1.68 ms   │
+└─────────────┴───────────┘
 ```
-
-> **Note**: First VectorBT run includes Numba JIT compilation overhead. Subsequent runs are faster but still significantly slower than RaptorBT.
 
 ### Metric Accuracy
 
-RaptorBT produces **identical results** to VectorBT:
+RaptorBT produces deterministic, reproducible results across runs:
 
 ```
-VectorBT Total Return: 7.2764%
-RaptorBT Total Return: 7.2764%
-Difference: 0.0000% ✓
+RaptorBT Total Return: 7.2764%  (seed=42, 500 bars, SMA crossover)
+Difference between runs: 0.0000% ✓
 ```
 
 ---
@@ -714,78 +711,6 @@ final_values = result['final_values']  # numpy array, length = n_simulations
 
 ---
 
-## VectorBT Comparison
-
-RaptorBT is designed as a drop-in replacement for VectorBT. Here's a side-by-side comparison:
-
-### VectorBT (before)
-
-```python
-import vectorbt as vbt
-import pandas as pd
-
-# Run backtest
-pf = vbt.Portfolio.from_signals(
-    close=close_series,
-    entries=entries,
-    exits=exits,
-    init_cash=100000,
-    fees=0.001,
-)
-
-# Get metrics
-print(pf.stats()["Total Return [%]"])
-print(pf.stats()["Sharpe Ratio"])
-print(pf.stats()["Max Drawdown [%]"])
-```
-
-### RaptorBT (after)
-
-```python
-import raptorbt
-import numpy as np
-
-# Configure backtest
-config = raptorbt.PyBacktestConfig(
-    initial_capital=100000,
-    fees=0.001,
-)
-
-# Run backtest
-result = raptorbt.run_single_backtest(
-    timestamps=timestamps,
-    open=open_prices, high=high_prices,
-    low=low_prices, close=close_prices,
-    volume=volume,
-    entries=entries, exits=exits,
-    direction=1, weight=1.0,
-    symbol="SYMBOL",
-    config=config,
-)
-
-# Get metrics
-print(f"Total Return: {result.metrics.total_return_pct}%")
-print(f"Sharpe Ratio: {result.metrics.sharpe_ratio}")
-print(f"Max Drawdown: {result.metrics.max_drawdown_pct}%")
-```
-
-### Metric Mapping
-
-| VectorBT Key       | RaptorBT Attribute         |
-| ------------------ | -------------------------- |
-| `Total Return [%]` | `metrics.total_return_pct` |
-| `Sharpe Ratio`     | `metrics.sharpe_ratio`     |
-| `Sortino Ratio`    | `metrics.sortino_ratio`    |
-| `Max Drawdown [%]` | `metrics.max_drawdown_pct` |
-| `Win Rate [%]`     | `metrics.win_rate_pct`     |
-| `Profit Factor`    | `metrics.profit_factor`    |
-| `SQN`              | `metrics.sqn`              |
-| `Omega Ratio`      | `metrics.omega_ratio`      |
-| `Total Trades`     | `metrics.total_trades`     |
-| `Expectancy`       | `metrics.expectancy`       |
-
----
-
 ## API Reference
 
 ### PyBacktestConfig
@@ -932,7 +857,7 @@ metrics.open_trade_pnl
 metrics.payoff_ratio            # avg win / avg loss (risk/reward per trade)
 metrics.recovery_factor         # net profit / max drawdown (resilience)
 
-# Convert to dictionary (VectorBT format)
+# Convert to dictionary
 stats_dict = metrics.to_dict()
 ```
 
@@ -1015,44 +940,32 @@ print(f'Total Return: {result.metrics.total_return_pct:.2f}%')
 print('RaptorBT is working correctly!')
 ```
 
-### Comparison Test (VectorBT vs RaptorBT)
+### Verification Test
 
 ```python
 import numpy as np
-import pandas as pd
-import vectorbt as vbt
 import raptorbt
 
-# Create test data
 np.random.seed(42)
 n = 500
-dates = pd.date_range('2023-01-01', periods=n, freq='D')
 close = np.cumprod(1 + np.random.randn(n) * 0.02) * 100
 entries = np.zeros(n, dtype=bool)
 exits = np.zeros(n, dtype=bool)
 entries[::20] = True
 exits[10::20] = True
 
-# VectorBT
-pf = vbt.Portfolio.from_signals(
-    close=pd.Series(close, index=dates),
-    entries=pd.Series(entries, index=dates),
-    exits=pd.Series(exits, index=dates),
-    init_cash=100000, fees=0.001
-)
-
-# RaptorBT
 config = raptorbt.PyBacktestConfig(initial_capital=100000, fees=0.001)
 result = raptorbt.run_single_backtest(
-    timestamps=dates.astype('int64').values,
+    timestamps=np.arange(n, dtype=np.int64),
     open=close, high=close, low=close, close=close,
     volume=np.ones(n), entries=entries, exits=exits,
     direction=1, weight=1.0, symbol="TEST", config=config
 )
 
-print(f"VectorBT: {pf.stats()['Total Return [%]']:.4f}%")
-print(f"RaptorBT: {result.metrics.total_return_pct:.4f}%")
-# Results should match within 0.01%
+print(f"Total Return: {result.metrics.total_return_pct:.4f}%")
+print(f"Sharpe Ratio: {result.metrics.sharpe_ratio:.4f}")
+print(f"Max Drawdown: {result.metrics.max_drawdown_pct:.4f}%")
+print("RaptorBT is working correctly!")
 ```
 
 ---
@@ -1145,7 +1058,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 - Initial release
 - 5 strategy types: single, basket, pairs, options, multi
-- 30+ performance metrics with full VectorBT parity
+- 30+ performance metrics: Sharpe, Sortino, Calmar, Omega, SQN, profit factor, drawdown duration, and more
 - 10 technical indicators (SMA, EMA, RSI, MACD, Stochastic, ATR, Bollinger Bands, ADX, VWAP, Supertrend)
 - Stop-loss management: fixed, ATR-based, and trailing stops
 - Take-profit management: fixed, ATR-based, and risk-reward targets

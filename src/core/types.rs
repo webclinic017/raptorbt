@@ -473,7 +473,7 @@ pub struct Position {
     pub highest_since_entry: Price,
     /// Lowest price since entry (for trailing stops).
     pub lowest_since_entry: Price,
-    /// Entry fees (to include in trade PnL like VectorBT).
+    /// Entry fees included in trade PnL.
     pub entry_fees: f64,
 }
 

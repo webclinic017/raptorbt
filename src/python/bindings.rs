@@ -435,7 +435,7 @@ impl PyBacktestMetrics {
         )
     }
 
-    /// Convert to dictionary matching VectorBT stats() format.
+    /// Convert to dictionary of all metrics.
     fn to_dict(&self, py: Python) -> PyResult<PyObject> {
         let dict = pyo3::types::PyDict::new(py);
         dict.set_item("Start Value", self.start_value)?;
