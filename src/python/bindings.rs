@@ -21,6 +21,7 @@ use crate::strategies::single::SingleBacktest;
 use crate::strategies::spreads::{
     LegConfig, OptionType as SpreadOptionType, SpreadBacktest, SpreadConfig, SpreadType,
 };
+use crate::strategies::tick::{TickBacktest, TickBacktestConfig};
 
 use super::numpy_bridge::*;
 
@@ -434,7 +435,7 @@ impl PyBacktestMetrics {
         )
     }
 
-    /// Convert to dictionary matching VectorBT stats() format.
+    /// Convert to dictionary of all metrics.
     fn to_dict(&self, py: Python) -> PyResult<PyObject> {
         let dict = pyo3::types::PyDict::new(py);
         dict.set_item("Start Value", self.start_value)?;
@@ -1047,6 +1048,277 @@ pub fn run_multi_backtest<'py>(
     let result = backtest.run(&ohlcv, &rust_strategies);
 
     Ok(convert_result(result))
+}
+
+/// Run tick-level backtest on a single instrument.
+///
+/// All arrays must be the same length N (one element per tick).
+/// `buy_qty_delta` and `sell_qty_delta` must already be per-tick deltas —
+/// pass the difference from the previous tick, not Zerodha's cumulative totals.
+/// `entries` / `exits` are caller-computed boolean signal arrays.
+///
+/// Returns a `PyBacktestResult` with the same fields as `run_single_backtest`.
+#[pyfunction]
+#[pyo3(signature = (
+    timestamps,
+    ltp,
+    bid,
+    ask,
+    buy_qty_delta,
+    sell_qty_delta,
+    oi,
+    entries,
+    exits,
+    symbol = "TICK",
+    initial_capital = 100_000.0,
+    fees = 0.001,
+    slippage = 0.0,
+    stop_loss_pct = 5.0,
+    take_profit_pct = 10.0,
+    max_hold_seconds = 1800_u64,
+    entry_cooldown_ticks = 10_usize,
+    max_trades = 50_usize,
+))]
+pub fn run_tick_backtest<'py>(
+    _py: Python<'py>,
+    timestamps: PyReadonlyArray1<i64>,
+    ltp: PyReadonlyArray1<f64>,
+    bid: PyReadonlyArray1<f64>,
+    ask: PyReadonlyArray1<f64>,
+    buy_qty_delta: PyReadonlyArray1<f64>,
+    sell_qty_delta: PyReadonlyArray1<f64>,
+    oi: PyReadonlyArray1<f64>,
+    entries: PyReadonlyArray1<bool>,
+    exits: PyReadonlyArray1<bool>,
+    symbol: &str,
+    initial_capital: f64,
+    fees: f64,
+    slippage: f64,
+    stop_loss_pct: f64,
+    take_profit_pct: f64,
+    max_hold_seconds: u64,
+    entry_cooldown_ticks: usize,
+    max_trades: usize,
+) -> PyResult<PyBacktestResult> {
+    let tick_data = crate::core::types::TickData {
+        timestamps: numpy_to_vec_i64(timestamps),
+        ltp: numpy_to_vec_f64(ltp),
+        bid: numpy_to_vec_f64(bid),
+        ask: numpy_to_vec_f64(ask),
+        buy_qty_delta: numpy_to_vec_f64(buy_qty_delta),
+        sell_qty_delta: numpy_to_vec_f64(sell_qty_delta),
+        oi: numpy_to_vec_f64(oi),
+    };
+
+    let entry_signals = numpy_to_vec_bool(entries);
+    let exit_signals = numpy_to_vec_bool(exits);
+
+    let config = TickBacktestConfig {
+        base: crate::core::types::BacktestConfig {
+            initial_capital,
+            fees,
+            slippage,
+            stop: crate::core::types::StopConfig::None,
+            target: crate::core::types::TargetConfig::None,
+            upon_bar_close: false,
+        },
+        stop_loss_pct,
+        take_profit_pct,
+        max_hold_seconds,
+        entry_cooldown_ticks,
+        max_trades,
+    };
+
+    let backtest = TickBacktest::new(config);
+    let result = backtest.run(&tick_data, &entry_signals, &exit_signals, symbol);
+
+    Ok(convert_result(result))
+}
+
+// ============================================================================
+// Tick Signal Functions
+// ============================================================================
+
+/// Compute tick momentum entry signals from per-tick feature arrays.
+///
+/// All input arrays must have the same length N. Returns a bool array of length N
+/// where True indicates a valid entry tick (all gates passed, not in cooldown).
+///
+/// Gates (each can be disabled by setting threshold to 0.0):
+///   - spread_pct[i] <= spread_pct_max
+///   - bsi_delta[i] >= bsi_min  (0.0 = disabled)
+///   - |return_1m[i]| >= return_1m_min_abs  (0.0 = disabled; NaN always fails)
+///   - cooldown_ticks between consecutive entries
+///
+/// return_direction: +1 for long (needs positive return_1m), -1 for short.
+#[pyfunction]
+#[pyo3(signature = (
+    spread_pct,
+    bsi_delta,
+    return_1m,
+    spread_pct_max = 5.0,
+    bsi_min = 0.0,
+    return_1m_min_abs = 0.0,
+    return_direction = 1_i8,
+    cooldown_ticks = 10_usize,
+))]
+pub fn compute_tick_entry_signals<'py>(
+    py: Python<'py>,
+    spread_pct: PyReadonlyArray1<f64>,
+    bsi_delta: PyReadonlyArray1<f64>,
+    return_1m: PyReadonlyArray1<f64>,
+    spread_pct_max: f64,
+    bsi_min: f64,
+    return_1m_min_abs: f64,
+    return_direction: i8,
+    cooldown_ticks: usize,
+) -> PyResult<&'py PyArray1<bool>> {
+    let result = crate::signals::tick_signals::tick_momentum_entry(
+        &numpy_to_vec_f64(spread_pct),
+        &numpy_to_vec_f64(bsi_delta),
+        &numpy_to_vec_f64(return_1m),
+        spread_pct_max,
+        bsi_min,
+        return_1m_min_abs,
+        return_direction,
+        cooldown_ticks,
+    );
+    Ok(vec_to_numpy_bool(py, result))
+}
+
+/// Compute time-based exit signals (EOD / session-end).
+///
+/// Sets exit[i] = True for every tick with timestamp >= eod_exit_time_ns.
+/// Set eod_exit_time_ns = 0 to disable (returns all False).
+///
+/// timestamps_ns: nanoseconds-since-epoch for each tick (int64 array).
+#[pyfunction]
+#[pyo3(signature = (timestamps_ns, eod_exit_time_ns = 0_i64))]
+pub fn compute_tick_exit_signals<'py>(
+    py: Python<'py>,
+    timestamps_ns: PyReadonlyArray1<i64>,
+    eod_exit_time_ns: i64,
+) -> PyResult<&'py PyArray1<bool>> {
+    let result = crate::signals::tick_signals::tick_momentum_exit(
+        &numpy_to_vec_i64(timestamps_ns),
+        eod_exit_time_ns,
+    );
+    Ok(vec_to_numpy_bool(py, result))
+}
+
+// ============================================================================
+// Tick Feature Functions
+// ============================================================================
+
+/// Per-tick bid/ask spread as percentage of mid price.
+/// Returns 0.0 where both bid and ask are zero.
+#[pyfunction]
+pub fn tick_spread_pct<'py>(
+    py: Python<'py>,
+    bid: PyReadonlyArray1<f64>,
+    ask: PyReadonlyArray1<f64>,
+) -> PyResult<&'py PyArray1<f64>> {
+    Ok(vec_to_numpy_f64(
+        py,
+        crate::indicators::tick_features::spread_pct(&numpy_to_vec_f64(bid), &numpy_to_vec_f64(ask)),
+    ))
+}
+
+/// Per-tick delta BSI from Zerodha cumulative session totals.
+///
+/// buy_qty_cumulative / sell_qty_cumulative must be the raw cumulative running sums
+/// from Zerodha (NOT already-converted deltas). Returns [0, 1] per tick; 0.5 = neutral.
+#[pyfunction]
+pub fn buy_sell_imbalance_delta<'py>(
+    py: Python<'py>,
+    buy_qty_cumulative: PyReadonlyArray1<f64>,
+    sell_qty_cumulative: PyReadonlyArray1<f64>,
+) -> PyResult<&'py PyArray1<f64>> {
+    Ok(vec_to_numpy_f64(
+        py,
+        crate::indicators::tick_features::buy_sell_imbalance_delta(
+            &numpy_to_vec_f64(buy_qty_cumulative),
+            &numpy_to_vec_f64(sell_qty_cumulative),
+        ),
+    ))
+}
+
+/// Per-tick lookback return over a time window.
+///
+/// timestamps_ns: nanoseconds-since-epoch for each tick.
+/// Returns NaN for ticks without sufficient history.
+#[pyfunction]
+#[pyo3(signature = (timestamps_ns, ltp, window_seconds = 60.0))]
+pub fn return_window<'py>(
+    py: Python<'py>,
+    timestamps_ns: PyReadonlyArray1<i64>,
+    ltp: PyReadonlyArray1<f64>,
+    window_seconds: f64,
+) -> PyResult<&'py PyArray1<f64>> {
+    Ok(vec_to_numpy_f64(
+        py,
+        crate::indicators::tick_features::return_window(
+            &numpy_to_vec_i64(timestamps_ns),
+            &numpy_to_vec_f64(ltp),
+            window_seconds,
+        ),
+    ))
+}
+
+/// Rolling realized volatility proxy: stddev of log-returns over a time window (as %).
+/// Returns NaN for ticks without at least 2 data points in the window.
+#[pyfunction]
+#[pyo3(signature = (timestamps_ns, ltp, window_seconds = 300.0))]
+pub fn realized_vol_rolling<'py>(
+    py: Python<'py>,
+    timestamps_ns: PyReadonlyArray1<i64>,
+    ltp: PyReadonlyArray1<f64>,
+    window_seconds: f64,
+) -> PyResult<&'py PyArray1<f64>> {
+    Ok(vec_to_numpy_f64(
+        py,
+        crate::indicators::tick_features::realized_vol_rolling(
+            &numpy_to_vec_i64(timestamps_ns),
+            &numpy_to_vec_f64(ltp),
+            window_seconds,
+        ),
+    ))
+}
+
+/// Per-tick OI position within the day's high/low range: [0, 100].
+/// Returns NaN where oi_day_high <= oi_day_low.
+#[pyfunction]
+pub fn oi_position_pct<'py>(
+    py: Python<'py>,
+    oi: PyReadonlyArray1<f64>,
+    oi_day_high: f64,
+    oi_day_low: f64,
+) -> PyResult<&'py PyArray1<f64>> {
+    Ok(vec_to_numpy_f64(
+        py,
+        crate::indicators::tick_features::oi_position_pct(
+            &numpy_to_vec_f64(oi),
+            oi_day_high,
+            oi_day_low,
+        ),
+    ))
+}
+
+/// Rolling tick velocity: ticks per minute over the preceding window_seconds.
+#[pyfunction]
+#[pyo3(signature = (timestamps_ns, window_seconds = 60.0))]
+pub fn tick_velocity<'py>(
+    py: Python<'py>,
+    timestamps_ns: PyReadonlyArray1<i64>,
+    window_seconds: f64,
+) -> PyResult<&'py PyArray1<f64>> {
+    Ok(vec_to_numpy_f64(
+        py,
+        crate::indicators::tick_features::tick_velocity(
+            &numpy_to_vec_i64(timestamps_ns),
+            window_seconds,
+        ),
+    ))
 }
 
 // ============================================================================

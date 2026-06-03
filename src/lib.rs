@@ -43,6 +43,7 @@ fn _raptorbt(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(python::bindings::run_pairs_backtest, m)?)?;
     m.add_function(wrap_pyfunction!(python::bindings::run_multi_backtest, m)?)?;
     m.add_function(wrap_pyfunction!(python::bindings::run_spread_backtest, m)?)?;
+    m.add_function(wrap_pyfunction!(python::bindings::run_tick_backtest, m)?)?;
 
     // Register batch spread backtest
     m.add_class::<python::bindings::PyBatchSpreadItem>()?;
@@ -50,6 +51,18 @@ fn _raptorbt(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
 
     // Register Monte Carlo simulation
     m.add_function(wrap_pyfunction!(python::bindings::simulate_portfolio_mc, m)?)?;
+
+    // Register tick signal functions
+    m.add_function(wrap_pyfunction!(python::bindings::compute_tick_entry_signals, m)?)?;
+    m.add_function(wrap_pyfunction!(python::bindings::compute_tick_exit_signals, m)?)?;
+
+    // Register tick feature functions
+    m.add_function(wrap_pyfunction!(python::bindings::tick_spread_pct, m)?)?;
+    m.add_function(wrap_pyfunction!(python::bindings::buy_sell_imbalance_delta, m)?)?;
+    m.add_function(wrap_pyfunction!(python::bindings::return_window, m)?)?;
+    m.add_function(wrap_pyfunction!(python::bindings::realized_vol_rolling, m)?)?;
+    m.add_function(wrap_pyfunction!(python::bindings::oi_position_pct, m)?)?;
+    m.add_function(wrap_pyfunction!(python::bindings::tick_velocity, m)?)?;
 
     // Register indicator functions
     m.add_function(wrap_pyfunction!(python::bindings::sma, m)?)?;

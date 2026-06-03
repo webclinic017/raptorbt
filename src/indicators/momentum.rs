@@ -276,9 +276,9 @@ mod tests {
         assert!(result.macd_line[24].is_nan());
         assert!(!result.macd_line[25].is_nan());
 
-        // Signal line should be valid later
-        assert!(result.signal_line[33].is_nan());
-        assert!(!result.signal_line[34].is_nan());
+        // Signal line starts at index slow_period-1 + signal_period-1 = 25+8 = 33
+        assert!(result.signal_line[32].is_nan());
+        assert!(!result.signal_line[33].is_nan());
     }
 
     #[test]

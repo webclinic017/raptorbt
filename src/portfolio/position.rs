@@ -112,7 +112,7 @@ impl PositionManager {
         let pos = &self.position;
         let multiplier = pos.direction.multiplier();
 
-        // Calculate P&L (matching VectorBT: gross - entry_fees - exit_fees)
+        // Calculate P&L: gross - entry_fees - exit_fees
         let gross_pnl = (exit_price - pos.entry_price) * pos.size * multiplier;
         let total_fees = pos.entry_fees + exit_fees;
         let pnl = gross_pnl - total_fees;

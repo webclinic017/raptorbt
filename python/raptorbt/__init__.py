@@ -1,12 +1,13 @@
 """
 RaptorBT - High-performance Rust backtesting engine.
 
-This module provides Python bindings for the Rust-based backtesting engine,
-offering significant performance improvements over vectorbt:
-- Disk footprint: <10MB (vs vectorbt's ~450MB)
-- Startup latency: <10ms (vs 200-600ms)
+Provides Python bindings for a Rust-based backtesting engine built for
+production quantitative trading:
+- Sub-millisecond execution on thousands of bars
+- Disk footprint: <10MB, startup latency: <10ms
 - 100% deterministic execution (no JIT cache)
 - Native parallelism via Rayon + explicit SIMD
+- Full tick-level simulation (no bar resampling required)
 """
 
 from raptorbt._raptorbt import (
@@ -26,11 +27,22 @@ from raptorbt._raptorbt import (
     run_pairs_backtest,
     run_multi_backtest,
     run_spread_backtest,
+    run_tick_backtest,
     # Batch backtest
     PyBatchSpreadItem,
     batch_spread_backtest,
     # Monte Carlo simulation
     simulate_portfolio_mc,
+    # Tick signal functions
+    compute_tick_entry_signals,
+    compute_tick_exit_signals,
+    # Tick feature functions
+    tick_spread_pct,
+    buy_sell_imbalance_delta,
+    return_window,
+    realized_vol_rolling,
+    oi_position_pct,
+    tick_velocity,
     # Indicator functions
     sma,
     ema,
@@ -46,7 +58,7 @@ from raptorbt._raptorbt import (
     rolling_max,
 )
 
-__version__ = "0.3.4"
+__version__ = "0.4.0"
 
 __all__ = [
     # Config classes
@@ -65,11 +77,22 @@ __all__ = [
     "run_pairs_backtest",
     "run_multi_backtest",
     "run_spread_backtest",
+    "run_tick_backtest",
     # Batch backtest
     "PyBatchSpreadItem",
     "batch_spread_backtest",
     # Monte Carlo simulation
     "simulate_portfolio_mc",
+    # Tick signal functions
+    "compute_tick_entry_signals",
+    "compute_tick_exit_signals",
+    # Tick feature functions
+    "tick_spread_pct",
+    "buy_sell_imbalance_delta",
+    "return_window",
+    "realized_vol_rolling",
+    "oi_position_pct",
+    "tick_velocity",
     # Indicator functions
     "sma",
     "ema",
