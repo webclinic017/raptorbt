@@ -52,6 +52,18 @@ fn _raptorbt(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     // Register Monte Carlo simulation
     m.add_function(wrap_pyfunction!(python::bindings::simulate_portfolio_mc, m)?)?;
 
+    // Register tick signal functions
+    m.add_function(wrap_pyfunction!(python::bindings::compute_tick_entry_signals, m)?)?;
+    m.add_function(wrap_pyfunction!(python::bindings::compute_tick_exit_signals, m)?)?;
+
+    // Register tick feature functions
+    m.add_function(wrap_pyfunction!(python::bindings::tick_spread_pct, m)?)?;
+    m.add_function(wrap_pyfunction!(python::bindings::buy_sell_imbalance_delta, m)?)?;
+    m.add_function(wrap_pyfunction!(python::bindings::return_window, m)?)?;
+    m.add_function(wrap_pyfunction!(python::bindings::realized_vol_rolling, m)?)?;
+    m.add_function(wrap_pyfunction!(python::bindings::oi_position_pct, m)?)?;
+    m.add_function(wrap_pyfunction!(python::bindings::tick_velocity, m)?)?;
+
     // Register indicator functions
     m.add_function(wrap_pyfunction!(python::bindings::sma, m)?)?;
     m.add_function(wrap_pyfunction!(python::bindings::ema, m)?)?;

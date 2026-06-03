@@ -32,6 +32,16 @@ from raptorbt._raptorbt import (
     batch_spread_backtest,
     # Monte Carlo simulation
     simulate_portfolio_mc,
+    # Tick signal functions
+    compute_tick_entry_signals,
+    compute_tick_exit_signals,
+    # Tick feature functions
+    tick_spread_pct,
+    buy_sell_imbalance_delta,
+    return_window,
+    realized_vol_rolling,
+    oi_position_pct,
+    tick_velocity,
     # Indicator functions
     sma,
     ema,
@@ -72,6 +82,16 @@ __all__ = [
     "batch_spread_backtest",
     # Monte Carlo simulation
     "simulate_portfolio_mc",
+    # Tick signal functions
+    "compute_tick_entry_signals",
+    "compute_tick_exit_signals",
+    # Tick feature functions
+    "tick_spread_pct",
+    "buy_sell_imbalance_delta",
+    "return_window",
+    "realized_vol_rolling",
+    "oi_position_pct",
+    "tick_velocity",
     # Indicator functions
     "sma",
     "ema",

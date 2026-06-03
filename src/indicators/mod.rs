@@ -6,6 +6,7 @@
 pub mod momentum;
 pub mod rolling;
 pub mod strength;
+pub mod tick_features;
 pub mod trend;
 pub mod volatility;
 pub mod volume;
@@ -13,6 +14,10 @@ pub mod volume;
 pub use momentum::{macd, rsi, stochastic, MacdResult, StochasticResult};
 pub use rolling::{rolling_max, rolling_min};
 pub use strength::adx;
+pub use tick_features::{
+    buy_sell_imbalance_delta, oi_position_pct, realized_vol_rolling, return_window, spread_pct,
+    tick_velocity,
+};
 pub use trend::{ema, sma, supertrend, SupertrendResult};
 pub use volatility::{atr, bollinger_bands, BollingerBandsResult};
 pub use volume::{obv, vwap};
